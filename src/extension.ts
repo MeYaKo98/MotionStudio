@@ -37,44 +37,60 @@ function updateConnectionStatus(status : boolean) {
 async function getAvailableSerialPorts(): Promise<any[]> {
     try {
         const ports = await SerialPort.list();
+
         if (ports.length === 0) {
             console.log('No serial ports found.');
             return [];
         }
-        
-        // Filter out known system ports (COM0, LPT1, etc. on Windows; cu.* on macOS)
-        // This is cross-platform safe and allows USB devices on all platforms
-        const systemPorts = /^(COM0|LPT\d+|cu\.\w+|ttyS\d+|ttyAMA\d+)$/i;
-        return ports.filter(port => !systemPorts.test(port.path));
+
+        const usbFilteredPorts = ports.filter(port => {
+            const isUsbDevice = !!(port.vendorId || port.productId);
+            return isUsbDevice;
+        });
+
+        return usbFilteredPorts;
     } catch (error) {
-        console.log(`Error listing serial ports: ${error}`);
+        console.error(`Error listing serial ports: ${error}`);
         return [];
     }
 }
 
 
-export async function getAvailableTPCIPDevices(timeoutMs: number = 500): Promise<Service[]> {
-    const localIp = Object.values(os.networkInterfaces())
-        .flat()
-        .find(i => i?.family === 'IPv4' && !i.internal && !i.address.startsWith('169.254'))
-        ?.address;
-    
-    const bonjour = new Bonjour({interface: localIp || '0.0.0.0'} as any);
-    const devices: Service[] = [];
+export async function getAvailableTPCIPDevices(timeoutMs: number = 1000): Promise<Service[]> {
+    const devices = new Map<string, Service>();
+    const networkInterfaces = os.networkInterfaces();
+    const activeInterfaces: string[] = [];
 
-    return new Promise((resolve) => {
-        const browser = bonjour.find({ type: 'MotionLink' });
+    for (const name of Object.keys(networkInterfaces)) {
+        for (const net of networkInterfaces[name]!) {
+            if (net.family === 'IPv4') {
+                activeInterfaces.push(net.address);
+            }
+        }
+    }
+
+    const instances = activeInterfaces.map(ip => {
+        const bj = new Bonjour({ interface: ip } as any);
+        const browser = bj.find({ type: 'MotionLink' });
 
         browser.on('up', (service: Service) => {
-            devices.push(service);
+            const id = service.addresses?.[0] || service.host;
+            devices.set(id, service);
         });
 
+        return { bj, browser };
+    });
+
+    return new Promise((resolve) => {
         setTimeout(() => {
-            browser.stop();
-            bonjour.destroy();
-            resolve(devices);
+            instances.forEach(({ bj, browser }) => {
+                browser.stop();
+                bj.destroy();
+            });
+            resolve(Array.from(devices.values()));
         }, timeoutMs);
     });
+
 }
 
 export function activate(context: vscode.ExtensionContext) {
