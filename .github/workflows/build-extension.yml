@@ -1,0 +1,100 @@
+name: Build Extension
+
+on:
+  push:
+    branches:
+      - develop
+      - master
+      - 'release/**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Compile and package VSIX
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile extension
+        run: npm run compile
+
+      - name: Package extension
+        shell: bash
+        run: |
+          mkdir -p deliverables
+
+          version=$(node -p "require('./package.json').version")
+
+          if [[ "${GITHUB_REF_NAME}" == "develop" || "${GITHUB_REF_NAME}" == "master" ]]; then
+            vsix_name="motion-studio-${GITHUB_REF_NAME}.vsix"
+            artifact_name="motion-studio-${GITHUB_REF_NAME}"
+            release_tag="${GITHUB_REF_NAME}-latest"
+            [[ "${GITHUB_REF_NAME}" == "develop" ]] && is_prerelease="true" || is_prerelease="false"
+          else
+            vsix_name="motion-studio-${version}.vsix"
+            artifact_name="motion-studio-${version}"
+            release_tag="${GITHUB_REF_NAME//\//-}"
+            is_prerelease="true"
+          fi
+
+          npx --yes @vscode/vsce package --out "deliverables/${vsix_name}"
+
+          echo "artifact_name=${artifact_name}" >> "$GITHUB_ENV"
+          echo "vsix_path=deliverables/${vsix_name}" >> "$GITHUB_ENV"
+          echo "release_tag=${release_tag}" >> "$GITHUB_ENV"
+          echo "is_prerelease=${is_prerelease}" >> "$GITHUB_ENV"
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.artifact_name }}
+          path: ${{ env.vsix_path }}
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/release/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          release_title="${GITHUB_REF_NAME}"
+          release_notes="Automated deliverable for ${GITHUB_REF_NAME} at ${GITHUB_SHA}."
+
+          if [[ "${GITHUB_REF_NAME}" == "develop" || "${GITHUB_REF_NAME}" == "master" ]]; then
+            git tag --force "${release_tag}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${release_tag}" --force
+          fi
+
+          prerelease_flag="--prerelease=${is_prerelease}"
+
+          if gh release view "${release_tag}" >/dev/null 2>&1; then
+            gh release edit "${release_tag}" \
+              --title "${release_title}" \
+              --notes "${release_notes}" \
+              "${prerelease_flag}"
+          else
+            gh release create "${release_tag}" \
+              --title "${release_title}" \
+              --notes "${release_notes}" \
+              --target "${GITHUB_SHA}" \
+              "${prerelease_flag}"
+          fi
+
+          gh release upload "${release_tag}" "${vsix_path}" --clobber
