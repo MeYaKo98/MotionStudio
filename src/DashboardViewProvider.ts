@@ -15,6 +15,7 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
     private isConnected = false;
     private position: PositionData | undefined;
     private positionUpdatedAt: number | undefined;
+    private trajectory: PositionData[] = [];
 
     constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -37,6 +38,9 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
             if (message?.type === 'ready') {
                 this.isReady = true;
                 this.sendState();
+            } else if (message?.type === 'reset-trajectory') {
+                this.trajectory = [];
+                this.sendState();
             }
         });
         view.onDidDispose(() => {
@@ -48,13 +52,26 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
     }
 
     public setConnected(connected: boolean): void {
+        if (connected && !this.isConnected) {
+            this.position = undefined;
+            this.positionUpdatedAt = undefined;
+            this.trajectory = [];
+        }
         this.isConnected = connected;
         this.sendState();
     }
 
     public setPosition(position: PositionData): void {
+        if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.theta)) {
+            return;
+        }
+
         this.position = position;
         this.positionUpdatedAt = Date.now();
+        this.trajectory.push(position);
+        if (this.trajectory.length > 2000) {
+            this.trajectory = this.trajectory.slice(-2000);
+        }
         this.sendState();
     }
 
@@ -67,6 +84,7 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
             type: 'dashboard-state',
             connected: this.isConnected,
             position: this.position ?? null,
+            trajectory: this.trajectory,
             updatedAt: this.positionUpdatedAt ?? null
         });
     }

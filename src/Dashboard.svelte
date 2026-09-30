@@ -3,9 +3,24 @@
     const logoSrc = document.getElementById('app')?.dataset.logoSrc ?? '';
     let connected = false;
     let position = null;
+    let trajectory = [];
+    let scale = 64;
+    let robotX = 110;
+    let robotY = 110;
+    let robotRotation = 0;
+    let trajectoryPoints = '';
 
     function format(value) {
-        return typeof value === 'number' ? value.toFixed(3) : '--';
+        return Number.isFinite(value) ? value.toFixed(3) : '--';
+    }
+
+    function isValidPosition(value) {
+        return value !== null && typeof value === 'object' &&
+            Number.isFinite(value.x) && Number.isFinite(value.y) && Number.isFinite(value.theta);
+    }
+
+    function resetTrajectory() {
+        vscode.postMessage({ type: 'reset-trajectory' });
     }
 
     window.addEventListener('message', event => {
@@ -15,8 +30,21 @@
         }
 
         connected = state.connected;
-        position = state.position;
+        position = isValidPosition(state.position) ? state.position : null;
+        trajectory = Array.isArray(state.trajectory) ? state.trajectory.filter(isValidPosition) : [];
     });
+
+    $: extent = trajectory.reduce(
+        (max, point) => Math.max(max, Math.abs(point.x), Math.abs(point.y)),
+        Math.max(1, Math.abs(position?.x ?? 0), Math.abs(position?.y ?? 0))
+    );
+    $: scale = 64 / extent;
+    $: robotX = 110 + (position?.x ?? 0) * scale;
+    $: robotY = 110 - (position?.y ?? 0) * scale;
+    $: robotRotation = -((position?.theta ?? 0) * 180 / Math.PI);
+    $: trajectoryPoints = trajectory
+        .map(point => `${110 + point.x * scale},${110 - point.y * scale}`)
+        .join(' ');
 
     vscode.postMessage({ type: 'ready' });
 </script>
@@ -36,7 +64,13 @@
     {/if}
 
     <section aria-labelledby="position-heading">
-        <h3 id="position-heading">Position</h3>
+        <div class="section-heading">
+            <h3 id="position-heading">Position</h3>
+            <button type="button" class="reset-button" onclick={resetTrajectory}
+                title="Reset trajectory">
+                Reset
+            </button>
+        </div>
         <dl>
             <div class="metric">
                 <dt>X</dt>
@@ -51,6 +85,33 @@
                 <dd>{format(position?.theta)}</dd>
             </div>
         </dl>
+
+        <svg class="map" viewBox="0 0 220 220" role="img" aria-label="Robot position and heading on the XY axes">
+            <line class="axis" x1="22" y1="110" x2="198" y2="110" />
+            <line class="axis" x1="110" y1="198" x2="110" y2="22" />
+            <path class="axis" d="M 190 106 L 198 110 L 190 114" />
+            <path class="axis" d="M 106 30 L 110 22 L 114 30" />
+            <line class="tick" x1="46" y1="106" x2="46" y2="114" />
+            <line class="tick" x1="174" y1="106" x2="174" y2="114" />
+            <line class="tick" x1="106" y1="46" x2="114" y2="46" />
+            <line class="tick" x1="106" y1="174" x2="114" y2="174" />
+            <circle class="origin" cx="110" cy="110" r="2.5" />
+            <text class="axis-label" x="202" y="114">X</text>
+            <text class="axis-label" x="114" y="18">Y</text>
+            <text class="scale-label" x="46" y="128" text-anchor="middle">-{format(extent)}</text>
+            <text class="scale-label" x="174" y="128" text-anchor="middle">+{format(extent)}</text>
+            <text class="scale-label" x="118" y="49">+{format(extent)}</text>
+            <text class="scale-label" x="118" y="177">-{format(extent)}</text>
+            {#if trajectory.length > 1}
+                <polyline class="trajectory" points={trajectoryPoints} />
+            {/if}
+            {#if position}
+                <circle class="latest-sample" cx={robotX} cy={robotY} r="3.5" />
+                <g transform={`translate(${robotX} ${robotY}) rotate(${robotRotation})`}>
+                    <polygon class="robot" points="10,0 -7,-6 -7,6" />
+                </g>
+            {/if}
+        </svg>
     </section>
     
 </main>
@@ -120,8 +181,88 @@
         text-transform: uppercase;
     }
 
+    .section-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .reset-button {
+        padding: 3px 8px;
+        color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+        background: var(--vscode-button-secondaryBackground, transparent);
+        border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+        border-radius: 2px;
+        font: inherit;
+        cursor: pointer;
+    }
+
+    .reset-button:hover:not(:disabled) {
+        background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+    }
+
+    .reset-button:focus-visible {
+        outline: 1px solid var(--vscode-focusBorder);
+        outline-offset: 1px;
+    }
+
     dl {
         margin: 0;
+    }
+
+    .map {
+        display: block;
+        width: 100%;
+        max-width: 240px;
+        height: auto;
+        margin: 8px auto 0;
+        overflow: visible;
+    }
+
+    .axis {
+        fill: none;
+        stroke: var(--vscode-descriptionForeground);
+        stroke-width: 1;
+    }
+
+    .origin {
+        fill: var(--vscode-descriptionForeground);
+    }
+
+    .trajectory {
+        fill: none;
+        stroke: var(--vscode-charts-orange, var(--vscode-foreground));
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .latest-sample {
+        fill: var(--vscode-charts-orange, var(--vscode-foreground));
+    }
+
+    .tick {
+        stroke: var(--vscode-descriptionForeground);
+        stroke-width: 1;
+    }
+
+    .scale-label {
+        fill: var(--vscode-descriptionForeground);
+        font-family: var(--vscode-editor-font-family, monospace);
+        font-size: 7px;
+    }
+
+    .axis-label {
+        fill: var(--vscode-descriptionForeground);
+        font-family: var(--vscode-font-family);
+        font-size: 10px;
+    }
+
+    .robot {
+        fill: var(--vscode-charts-blue);
+        stroke: var(--vscode-foreground);
+        stroke-width: 1.5;
+        stroke-linejoin: round;
     }
 
     .metric {
