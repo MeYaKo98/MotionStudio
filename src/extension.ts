@@ -4,6 +4,7 @@ import { Bonjour, Service } from 'bonjour-service';
 import os from 'os';
 import { MotionLink } from './MotionLink';
 import { MotionCLI } from './MotionCLI';
+import { DashboardViewProvider } from './DashboardViewProvider';
 
 const medias = [
     {
@@ -17,6 +18,7 @@ const medias = [
 let isConnected = false;
 let statusCheckTimer: ReturnType<typeof setInterval> | undefined;
 let isCheckingStatus = false;
+let dashboardViewProvider: DashboardViewProvider | undefined;
 const myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 function updateStatusBar() {
     if (isConnected) {
@@ -32,6 +34,7 @@ function updateStatusBar() {
 }
 function updateConnectionStatus(status : boolean) {
     isConnected = status;
+    dashboardViewProvider?.setConnected(status);
     if (status) {
         if (statusCheckTimer) {
             clearInterval(statusCheckTimer);
@@ -44,8 +47,20 @@ function updateConnectionStatus(status : boolean) {
             isCheckingStatus = true;
             try {
                 try {
-                    const result = await MotionLink.getInstance().handleCommand('getstatus', []);
-                    if (result.success) {
+                    const result = await MotionLink.getInstance().handleCommand('getposition', []);
+                    const position = result.data;
+                    if (result.success && position &&
+                        typeof position.x === 'number' &&
+                        typeof position.y === 'number' &&
+                        typeof position.theta === 'number') {
+                        if (!isConnected) {
+                            return;
+                        }
+                        dashboardViewProvider?.setPosition({
+                            x: position.x,
+                            y: position.y,
+                            theta: position.theta
+                        });
                         return;
                     }
                 } catch (error) {
@@ -71,7 +86,7 @@ function updateConnectionStatus(status : boolean) {
             } finally {
                 isCheckingStatus = false;
             }
-        }, 1000);
+        }, 100);
     } else if (statusCheckTimer) {
         clearInterval(statusCheckTimer);
         statusCheckTimer = undefined;
@@ -142,6 +157,14 @@ export async function getAvailableTPCIPDevices(timeoutMs: number = 1000): Promis
 export function activate(context: vscode.ExtensionContext) {
     console.log('Motion Studio is now active!');
     updateStatusBar();
+
+    dashboardViewProvider = new DashboardViewProvider(context.extensionUri);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            DashboardViewProvider.viewType,
+            dashboardViewProvider
+        )
+    );
 
     // The Profile Provider for the dropdown menu
     const provider = vscode.window.registerTerminalProfileProvider(

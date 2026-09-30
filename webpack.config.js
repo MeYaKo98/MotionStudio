@@ -46,4 +46,39 @@ const extensionConfig = {
     level: "log", // enables logging required for problem matchers
   },
 };
-module.exports = [ extensionConfig ];
+
+const dashboardConfig = {
+  name: 'dashboard-webview',
+  target: 'web',
+  mode: 'none',
+  entry: './src/dashboardWebview.ts',
+  output: {
+    path: path.resolve(__dirname, 'dist'),
+    filename: 'dashboard.js'
+  },
+  resolve: {
+    extensions: ['.svelte', '.ts', '.js'],
+    conditionNames: ['svelte', 'browser', '...']
+  },
+  module: {
+    rules: [
+      {
+        test: /\.ts$/,
+        exclude: /node_modules/,
+        use: 'ts-loader'
+      },
+      {
+        test: /\.svelte$/,
+        use: {
+          loader: 'svelte-loader',
+          options: {
+            compilerOptions: { dev: false }
+          }
+        }
+      }
+    ]
+  },
+  devtool: 'nosources-source-map'
+};
+
+module.exports = [extensionConfig, dashboardConfig];
