@@ -15,6 +15,8 @@ const medias = [
 ];
 
 let isConnected = false;
+let statusCheckTimer: ReturnType<typeof setInterval> | undefined;
+let isCheckingStatus = false;
 const myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 function updateStatusBar() {
     if (isConnected) {
@@ -30,6 +32,50 @@ function updateStatusBar() {
 }
 function updateConnectionStatus(status : boolean) {
     isConnected = status;
+    if (status) {
+        if (statusCheckTimer) {
+            clearInterval(statusCheckTimer);
+        }
+        statusCheckTimer = setInterval(async () => {
+            if (isCheckingStatus) {
+                return;
+            }
+
+            isCheckingStatus = true;
+            try {
+                try {
+                    const result = await MotionLink.getInstance().handleCommand('getstatus', []);
+                    if (result.success) {
+                        return;
+                    }
+                } catch (error) {
+                    console.error(`Motion Link : Status check error: ${error}`);
+                }
+
+                if (!isConnected) {
+                    return;
+                }
+
+                if (statusCheckTimer) {
+                    clearInterval(statusCheckTimer);
+                    statusCheckTimer = undefined;
+                }
+                try {
+                    await MotionLink.disconnect();
+                } catch (error) {
+                    console.error(`Motion Link : Disconnect error: ${error}`);
+                } finally {
+                    updateConnectionStatus(false);
+                }
+                vscode.window.showErrorMessage('Motion Link : Status check failed; disconnected.');
+            } finally {
+                isCheckingStatus = false;
+            }
+        }, 1000);
+    } else if (statusCheckTimer) {
+        clearInterval(statusCheckTimer);
+        statusCheckTimer = undefined;
+    }
     vscode.commands.executeCommand('setContext', 'motion-studio.isConnected', status);
     updateStatusBar();
 }
@@ -197,6 +243,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('motion-studio.disconnect',
         async function () {
+            updateConnectionStatus(false);
             const result = await MotionLink.disconnect();
             if (result)
             {
@@ -206,7 +253,6 @@ export function activate(context: vscode.ExtensionContext) {
             {
                 vscode.window.showErrorMessage(`Motion Link : Failed to disconnect`);
             }
-            updateConnectionStatus(false);
         })
     );
 }
