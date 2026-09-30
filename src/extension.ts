@@ -18,6 +18,8 @@ const medias = [
 let isConnected = false;
 let statusCheckTimer: ReturnType<typeof setInterval> | undefined;
 let isCheckingStatus = false;
+let consecutivePositionFailures = 0;
+const maxConsecutivePositionFailures = 3;
 let dashboardViewProvider: DashboardViewProvider | undefined;
 const myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
 function updateStatusBar() {
@@ -34,6 +36,7 @@ function updateStatusBar() {
 }
 function updateConnectionStatus(status : boolean) {
     isConnected = status;
+    consecutivePositionFailures = 0;
     dashboardViewProvider?.setConnected(status);
     if (status) {
         if (statusCheckTimer) {
@@ -61,6 +64,7 @@ function updateConnectionStatus(status : boolean) {
                             y: position.y,
                             theta: position.theta
                         });
+                        consecutivePositionFailures = 0;
                         return;
                     }
                 } catch (error) {
@@ -68,6 +72,12 @@ function updateConnectionStatus(status : boolean) {
                 }
 
                 if (!isConnected) {
+                    return;
+                }
+
+                consecutivePositionFailures++;
+                if (consecutivePositionFailures < maxConsecutivePositionFailures) {
+                    console.warn(`Motion Link : Position check failed (${consecutivePositionFailures}/${maxConsecutivePositionFailures}); keeping connection open.`);
                     return;
                 }
 

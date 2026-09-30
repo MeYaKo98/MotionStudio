@@ -213,7 +213,6 @@
     .map {
         display: block;
         width: 100%;
-        max-width: 240px;
         height: auto;
         margin: 8px auto 0;
         overflow: visible;
