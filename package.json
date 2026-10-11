@@ -28,10 +28,29 @@
     "vscode": "^1.110.0"
   },
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onView:motion-studio.dashboard"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "motion-studio",
+          "title": "Motion Studio",
+          "icon": "images/icon.png"
+        }
+      ]
+    },
+    "views": {
+      "motion-studio": [
+        {
+          "id": "motion-studio.dashboard",
+          "name": "Dashboard",
+          "type": "webview"
+        }
+      ]
+    },
     "terminal": {
       "profiles": [
         {
@@ -91,6 +110,8 @@
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",
+    "svelte": "^5.57.1",
+    "svelte-loader": "^3.2.4",
     "ts-loader": "^9.5.4",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",

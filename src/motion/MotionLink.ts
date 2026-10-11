@@ -115,11 +115,9 @@ export class MotionLink {
      */
     public static async disconnect(): Promise<boolean> {
         if (MotionLink.communicationChannel) {
-            const result = await MotionLink.communicationChannel.disconnect();
-            if (result) {
-                MotionLink.communicationChannel = null;
-            }
-            return result;
+            const channel = MotionLink.communicationChannel;
+            MotionLink.communicationChannel = null;
+            return await channel.disconnect();
         }
         return false;
     }
