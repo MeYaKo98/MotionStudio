@@ -51,7 +51,7 @@ const dashboardConfig = {
   name: 'dashboard-webview',
   target: 'web',
   mode: 'none',
-  entry: './src/dashboardWebview.ts',
+  entry: './src/dashboard/dashboardWebview.ts',
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: 'dashboard.js'

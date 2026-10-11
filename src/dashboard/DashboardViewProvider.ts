@@ -1,23 +1,24 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'crypto';
+import { DashboardStateStore } from '../services/DashboardStateStore';
+import { DashboardState, PositionData } from '../types/dashboard';
 
-export interface PositionData {
-    x: number;
-    y: number;
-    theta: number;
-}
+export { PositionData };
 
 export class DashboardViewProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'motion-studio.dashboard';
 
     private view: vscode.WebviewView | undefined;
     private isReady = false;
-    private isConnected = false;
-    private position: PositionData | undefined;
-    private positionUpdatedAt: number | undefined;
-    private trajectory: PositionData[] = [];
+    private readonly stateStore: DashboardStateStore;
+    private unsubscribeFromState: (() => void) | undefined;
 
-    constructor(private readonly extensionUri: vscode.Uri) {}
+    constructor(
+        private readonly extensionUri: vscode.Uri,
+        stateStore?: DashboardStateStore
+    ) {
+        this.stateStore = stateStore ?? new DashboardStateStore();
+    }
 
     public resolveWebviewView(
         view: vscode.WebviewView,
@@ -26,6 +27,9 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
     ): void {
         this.view = view;
         this.isReady = false;
+
+        this.unsubscribeFromState = this.stateStore.subscribe(state => this.sendState(state));
+
         view.webview.options = {
             enableScripts: true,
             localResourceRoots: [
@@ -33,18 +37,22 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
                 vscode.Uri.joinPath(this.extensionUri, 'images')
             ]
         };
+
         view.webview.html = this.getHtml(view.webview);
         view.webview.onDidReceiveMessage(message => {
             if (message?.type === 'ready') {
                 this.isReady = true;
                 this.sendState();
             } else if (message?.type === 'reset-trajectory') {
-                this.trajectory = [];
-                this.sendState();
+                this.stateStore.resetTrajectory();
+            } else if (message?.type === 'open-cli') {
+                vscode.commands.executeCommand('motion-studio.open-cli');
             }
         });
+
         view.onDidDispose(() => {
             if (this.view === view) {
+                this.unsubscribeFromState?.();
                 this.view = undefined;
                 this.isReady = false;
             }
@@ -52,40 +60,23 @@ export class DashboardViewProvider implements vscode.WebviewViewProvider {
     }
 
     public setConnected(connected: boolean): void {
-        if (connected && !this.isConnected) {
-            this.position = undefined;
-            this.positionUpdatedAt = undefined;
-            this.trajectory = [];
-        }
-        this.isConnected = connected;
-        this.sendState();
+        this.stateStore.setConnected(connected);
     }
 
     public setPosition(position: PositionData): void {
-        if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.theta)) {
-            return;
-        }
-
-        this.position = position;
-        this.positionUpdatedAt = Date.now();
-        this.trajectory.push(position);
-        if (this.trajectory.length > 2000) {
-            this.trajectory = this.trajectory.slice(-2000);
-        }
-        this.sendState();
+        this.stateStore.setPosition(position);
     }
 
-    private sendState(): void {
+    private sendState(state: DashboardState = this.stateStore.getState()): void {
         if (!this.view || !this.isReady) {
             return;
         }
 
         void this.view.webview.postMessage({
             type: 'dashboard-state',
-            connected: this.isConnected,
-            position: this.position ?? null,
-            trajectory: this.trajectory,
-            updatedAt: this.positionUpdatedAt ?? null
+            connected: state.connected,
+            position: state.position ?? null,
+            trajectory: state.trajectory
         });
     }
 
